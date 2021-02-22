@@ -1,0 +1,105 @@
+rm(list = ls())  
+options(stringsAsFactors = F)
+f='GSEXXXXX_eSet.Rdata'
+＃XXXXX refers to the number of downloaded GSE dataset 
+library(GEOquery)
+
+#Setting options('download.file.method.GEOquery'='auto')
+#Setting options('GEOquery.inmemory.gpl'=FALSE)
+if(!file.exists(f)){
+  gset <- getGEO('GSEXXXXX', destdir=".",
+                 AnnotGPL = F,     
+                 getGPL = F)       
+  save(gset,file=f)  
+}
+load('GSEXXXXX_eSet.Rdata')  
+class(gset)  
+length(gset)  
+class(gset[[1]])
+gset
+a=gset[[1]] 
+dat=exprs(a) 
+dim(dat)
+dat[1:4,1:4] 
+boxplot(dat,las=2)
+pd=pData(a) 
+library(stringr)
+group_list=str_split(pd$characteristics_ch1.1,' ',simplify = T)[,6]
+table(group_list)
+dat[1:4,1:4] 
+dat=read.csv("expdata.csv",head=T)
+rownames(dat)<-dat[,1]
+dat=dat[,-1]
+m=t(pd)
+colnames(dat)=colnames(m)
+
+if(T){
+  library(GEOquery)
+  #Download GPL file, put it in the current directory, and load it:
+  gpl <- getGEO('GPLZZZZZ')＃ZZZZZ refers to the number of downloaded GPL file
+  colnames(Table(gpl))
+  e=Table(gpl)
+  head(Table(gpl)[,c(1,13)]) ## you need to check this , which column do you need
+  probe2gene=Table(gpl)[,c(1,13)]
+  head(probe2gene)
+  library(stringr)  
+  save(probe2gene,file='probe2gene.Rdata')
+}
+load('probe2gene.Rdata')
+ids=probe2gene
+head(ids)
+colnames(ids)=c('probe_id','symbol')  
+ids=ids[ids$symbol != '',]
+ids=ids[ids$probe_id %in%  rownames(dat),]
+dat[1:4,1:4]   
+dat=dat[ids$probe_id,] 
+ids$median=apply(dat,1,median)
+ids=ids[order(ids$symbol,ids$median,decreasing = T),]
+ids=ids[!duplicated(ids$symbol),]
+dat=dat[ids$probe_id,] 
+rownames(dat)=ids$symbol
+dat[1:4,1:4]  
+
+write.csv(ids,file = 'ids.csv')
+write.csv(dat,file = 'c.csv')
+save(dat,group_list,file = 'step1-output.Rdata')
+
+
+load(file = 'step1-output.Rdata')
+library(limma)
+design <- model.matrix(~0+factor(group_list))
+colnames(design)=levels(factor(group_list))
+head(design)
+exprSet=dat
+rownames(design)=colnames(exprSet)
+design
+contrast.matrix<-makeContrasts("Abdominal-Control",
+                               levels = design)
+contrast.matrix 
+
+deg = function(exprSet,design,contrast.matrix){
+  ##step1
+  fit <- lmFit(exprSet,design)
+  ##step2
+  fit2 <- contrasts.fit(fit, contrast.matrix) 
+?eBayes
+  fit2 <- eBayes(fit2)  ## default no trend !!!
+  ##eBayes() with trend=TRUE
+  ##step3
+  tempOutput = topTable(fit2, coef=1, n=Inf)
+  nrDEG = na.omit(tempOutput) 
+  #write.csv(nrDEG2,"limma_notrend.results.csv",quote = F)
+  head(nrDEG)
+  return(nrDEG)
+}
+deg = deg(exprSet,design,contrast.matrix)
+head(deg)
+deg['FTO',]
+save(deg,file = 'deg.Rdata')
+
+logFC_t=1.5
+deg$g=ifelse(deg$P.Value>0.05,'stable',
+             ifelse( deg$logFC > logFC_t,'UP',
+                     ifelse( deg$logFC < -logFC_t,'DOWN','stable') ))
+table(deg$g)
+write.csv(deg,file = 'result.csv')
